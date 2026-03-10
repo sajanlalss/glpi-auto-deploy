@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: glpi-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - glpi-network
+
+  glpi:
+    image: diouxx/glpi
+    container_name: glpi-app
+    restart: always
+    environment:
+      - GLPI_LANG=en_GB
+    depends_on:
+      - db
+    volumes:
+      - glpi_data:/var/www/html/glpi
+    networks:
+      - glpi-network
+
+  jenkins:
+    build: ./jenkins
+    container_name: glpi-jenkins
+    restart: always
+    privileged: true
+    user: root
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - glpi-network
+
+  nginx:
+    image: nginx:latest
+    container_name: glpi-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - glpi
+      - jenkins
+    networks:
+      - glpi-network
+
+  backup:
+    image: ubuntu:latest
+    container_name: glpi-backup
+    restart: always
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+      - db_data:/var/lib/mysql:ro
+    environment:
+      - MYSQL_PWD=${MYSQL_ROOT_PASSWORD}
+    entrypoint: ["/bin/bash", "-c", "chmod +x /backup.sh && while true; do /backup.sh; sleep 86400; done"]
+    depends_on:
+      - db
+    networks:
+      - glpi-network
+
+networks:
+  glpi-network:
+    driver: bridge
+
+volumes:
+  db_data:
+  glpi_data:
+  jenkins_data:
